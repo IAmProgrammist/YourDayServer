@@ -24,5 +24,5 @@
   - Интересные факты ([сайт-источник](https://randstuff.ru/fact/))
   - Шутки ([сайт-источник](https://www.anekdot.ru/rss/randomu.html))
 
-    Вы всегда можете скачать последнюю версию приложения здесь:
-    # [СКАЧАТЬ ЕЖЕДНЕВНИК](http://rchat.info/others/app_1/app_2.apk)
+Вы всегда можете скачать последнюю версию приложения здесь:
+# [СКАЧАТЬ ЕЖЕДНЕВНИК](https://play.google.com/store/apps/details?id=rchat.info.yourday_new)
