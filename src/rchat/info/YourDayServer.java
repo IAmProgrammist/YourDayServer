@@ -14,6 +14,8 @@ import rchat.info.containters.day.Day;
 import rchat.info.containters.day.Description;
 import rchat.info.containters.day.Present;
 import rchat.info.containters.day.Type;
+import rchat.info.containters.historical.HistDay;
+import rchat.info.containters.historical.HistEvent;
 import rchat.info.containters.moon_calend.MainDescription;
 import rchat.info.containters.moon_calend.MoonDay;
 import rchat.info.containters.moon_calend.Tip;
@@ -33,23 +35,38 @@ import java.util.*;
 import static sun.util.logging.LoggingSupport.log;
 
 public class YourDayServer extends WebSocketServer {
+
+    static List<Joke> jokes = Collections.synchronizedList(new ArrayList<>());
     static List<Present> presents = new ArrayList<>();
     static List<String> churchPresents = new ArrayList<>();
     static Map<String, String> gorosope = new HashMap<>();
+    static Map<String, Pair<JSONObject, Date>> weathers = Collections.synchronizedMap(new HashMap<String, Pair<JSONObject, Date>>());
     static List<String> weekendCombinations = new ArrayList<>();
-    static List<String> names = new ArrayList<>();
+    static Names names;
+    static HistDay histDay;
     static List<Human> humans = new ArrayList<>();
     static Omen omen;
     static MoonDay moonDay;
     static Recipe recipe = new Recipe();
-    static String version = "1.3";
-    static String update = "• Мы сменили источнк праздников: теперь Вы можете более конкретно узнать о новом празднике!" + "\n" + "• Добавлен пункт \"Лунный календарь\"." + "\n";
+    static String version = "1.5";
+    static String update = "• Полная переработка дизайна \n• Новые, удобные заметки! Теперь Вы можете устанавливать фотографии, добавлять описание заметкам, а также изменять заметки (долгое нажатие на пункте) \n• Новый пукнт: исторические события!";
 
 
     public static class JSoupPropsLoader {
         private static void loadMoonDay() {
             try {
-                Document doc = Jsoup.connect("https://my-calend.ru/moon/today").get(); //today
+                /*
+                TODO:Working example
+                */
+                String mesyac = "";
+                mesyac = new SimpleDateFormat("MMMM", new DateFormatSymbols() {
+                    @Override
+                    public String[] getMonths() {
+                        return new String[]{"january", "february", "march", "april", "may", "june",
+                                "july", "august", "september", "october", "november", "december"};
+                    }
+                }).format(updateTime);
+                Document doc = Jsoup.connect("https://my-calend.ru/moon/" + new SimpleDateFormat("yyyy").format(updateTime) + "/" + mesyac + "/" + new SimpleDateFormat("d").format(updateTime)).get(); //today
                 MainDescription mainDescription;
                 Element desc = doc.selectFirst("[class=moon-day-info-1]");
                 String date = desc.select("tr td").get(0).text();
@@ -262,19 +279,45 @@ public class YourDayServer extends WebSocketServer {
         }
 
         //TODO:This is JSoupPropsLoader
-        private static Joke getJoke() {
+        private static void loadJokes() {
             try {
-                Document doc = Jsoup.connect("https://randstuff.ru/joke/").userAgent("Chrome/4.0.249.0 Safari/532.5")
-                        .referrer("http://www.google.com")
-                        .get();
-                Elements elements = doc.select("tr td");
-                elements = elements;
-                Joke joke = new Joke(elements.get(0).text());
-                return joke;
-            } catch (IOException e) {
-                ConsoleHelper.writeException(e);
+                Document doc = Jsoup.connect("https://www.anekdot.ru/rss/randomu.html").get();
+                String text = doc.select("body").removeAttr("div").text();
+                List<String> strings = getStrings(text);
+                String answer = strings.get(0);
+                answer = answer.replaceAll("\\\\\",\\\\", "\",").replaceAll("\\\\\\\\\\\\\"", "\\\\\"").replaceAll("\\[\\\\\"", "\\[\"").replaceAll("\\\\\"\\]", "\"\\]");
+                String json = "{\"array\":" + answer + "}";
+                JSONObject object = new JSONObject(json);
+                JSONArray array = object.getJSONArray("array");
+                synchronized (jokes) {
+                    jokes = new ArrayList<>();
+                    for (Object object1 : array) {
+                        jokes.add(new Joke((String)object1));
+                    }
+                }
+            }catch (IOException ignore){
+
             }
-            return null;
+        }
+
+        private static List<String> getStrings(String a){
+            List<String> res = new ArrayList<>();
+            boolean writing = false;
+            String tmp = "";
+            for(char d: a.toCharArray()){
+                if(writing){
+                    tmp += d;
+                }
+                if(String.valueOf(d).equals("[")){
+                    writing = true;
+                    tmp += "[";
+                }else if(String.valueOf(d).equals("]")){
+                    writing = false;
+                    res.add(tmp);
+                    tmp = "";
+                }
+            }
+            return res;
         }
 
         private static void loadOmens() {
@@ -442,7 +485,16 @@ public class YourDayServer extends WebSocketServer {
         private static void loadPresent() {
             try {
                 presents = new ArrayList<>();
-                Document doc = Jsoup.connect("https://my-calend.ru/holidays/russia").get();
+                //TODO:here is present. Done
+                String mesyac = "";
+                mesyac = new SimpleDateFormat("MMMM", new DateFormatSymbols() {
+                    @Override
+                    public String[] getMonths() {
+                        return new String[]{"january", "february", "march", "april", "may", "june",
+                                "july", "august", "september", "october", "november", "december"};
+                    }
+                }).format(updateTime);
+                Document doc = Jsoup.connect("https://my-calend.ru/holidays/russia/" + new SimpleDateFormat("d").format(updateTime) + "-" + mesyac).get();
                 Elements list = doc.select("[class='holidays-items']").select("li");
                 for (Element t : list) {
                     try {
@@ -505,15 +557,19 @@ public class YourDayServer extends WebSocketServer {
                         Present present = new Present(presentName, finalDescription);
                         presents.add(present);
                     } catch (IllegalArgumentException e) {
-                        if (t.toString().contains("holidays-like")) {
-                            String res = "";
-                            for (int i = 0; i < t.text().split(" ").length - 1; i++) {
-                                res += t.text().split(" ")[i] + " ";
+                        try {
+                            if (t.toString().contains("holidays-like")) {
+                                String res = "";
+                                for (int i = 0; i < t.text().split(" ").length - 1; i++) {
+                                    res += t.text().split(" ")[i] + " ";
+                                }
+                                res = res.substring(0, res.length() - 1);
+                                presents.add(new Present(res));
+                            } else {
+                                presents.add(new Present(t.text()));
                             }
-                            res = res.substring(0, res.length() - 1);
-                            presents.add(new Present(res));
-                        } else {
-                            presents.add(new Present(t.text()));
+                        } catch (Exception ee) {
+                            //idk how to parse this present rly
                         }
                     }
                 }
@@ -545,23 +601,36 @@ public class YourDayServer extends WebSocketServer {
             }
         }
 
-        private static Fact getFact() {
+        private static Fact getFact(){
             try {
                 Document doc = Jsoup.connect("https://randstuff.ru/fact/").userAgent("Chrome/4.0.249.0 Safari/532.5")
                         .referrer("http://www.google.com")
                         .get();
                 Elements list = doc.select("tr td");
                 return new Fact(list.get(0).text());
-            } catch (IOException e) {
-                e.printStackTrace();
-                return null;
+            }catch (IOException e) {
+                return new Fact("Факты пока недоступны");
             }
         }
 
         private static void loadChurchPresent() {
+            //TODO:here's too
             try {
+                /*
+
+                Document doc = Jsoup.connect("https://my-calend.ru/moon/" + new SimpleDateFormat("yyyy").format(updateTime) + "/" + mesyac + "/" + new SimpleDateFormat("d").format(updateTime)).get(); //today
+
+                 */
                 churchPresents = new ArrayList<>();
-                Document doc = Jsoup.connect("https://my-calend.ru/orthodox-calendar").get();
+                String mesyac = "";
+                mesyac = new SimpleDateFormat("MMMM", new DateFormatSymbols() {
+                    @Override
+                    public String[] getMonths() {
+                        return new String[]{"january", "february", "march", "april", "may", "june",
+                                "july", "august", "september", "october", "november", "december"};
+                    }
+                }).format(updateTime);
+                Document doc = Jsoup.connect("https://my-calend.ru/orthodox-calendar/" + new SimpleDateFormat("yyyy").format(updateTime) + "/" + mesyac + "/" + new SimpleDateFormat("d").format(updateTime)).get();
                 Elements list = doc.select("tbody tr td");
                 int i = 0;
                 for (Element t : list) {
@@ -582,14 +651,38 @@ public class YourDayServer extends WebSocketServer {
         }
 
         private static void loadNames() {
+            //TODO:maybe even here
             try {
-                names = new ArrayList<>();
-                Document doc = Jsoup.connect("https://my-calend.ru/name-days").get();
-                Elements list = doc.select("p span");
-                for (int i = 0; i < list.size() - 1; i++) {
-                    String a = list.get(i).text().substring(0, list.get(i).text().length() - 1);
-                    names.add(a);
+                String mesyac = "";
+                mesyac = new SimpleDateFormat("MMMM", new DateFormatSymbols() {
+                    @Override
+                    public String[] getMonths() {
+                        return new String[]{"january", "february", "march", "april", "may", "june",
+                                "july", "august", "september", "october", "november", "december"};
+                    }
+                }).format(updateTime);
+                Document doc = Jsoup.connect("https://my-calend.ru/name-days/" + new SimpleDateFormat("d").format(updateTime) + "-" + mesyac).get();
+                Elements girls = new Elements();
+                try {
+                    girls = doc.select("[class=name-days-day-table]").get(1).select("[class=name-days-female]");
+                } catch (IndexOutOfBoundsException e) {
+
                 }
+                Elements boys = new Elements();
+                try {
+                    boys = doc.select("[class=name-days-day-table]").get(0).select("td a");
+                } catch (IndexOutOfBoundsException e) {
+
+                }
+                List<String> boysList = new ArrayList<>();
+                List<String> girlsList = new ArrayList<>();
+                for (Element t : girls) {
+                    girlsList.add(t.text());
+                }
+                for (Element t : boys) {
+                    boysList.add(t.text());
+                }
+                names = new Names(girlsList, boysList);
                 ConsoleHelper.writeString("Именины добавлены!");
             } catch (IOException e) {
                 ConsoleHelper.writeException(e);
@@ -693,12 +786,74 @@ public class YourDayServer extends WebSocketServer {
             return null;
         }
 
+        public static JSONObject loadWeather(JSONObject o) throws IOException {
+            String cityName = o.getString("cityName");
+            Pair<JSONObject, Date> weather = weathers.get(cityName);
+            if (weather == null) {
+                String url = "http://api.openweathermap.org/data/2.5/onecall?lat=" + o.getDouble("lat") + "&lon=" + o.getDouble("lng") + "&units=metric&appid=71b119d9c5f8d45e899b73f2f984dff9";
+                Document doc = Jsoup.connect(url).ignoreContentType(true).get();
+                ConsoleHelper.writeString("Перезаписал погоду для " + cityName);
+                Date cur = new Date();
+                cur.setSeconds(0);
+                cur.setMinutes(0);
+                weathers.put(cityName, new Pair<JSONObject, Date>(new JSONObject(doc.text()), cur));
+                return new JSONObject(doc.text());
+            } else {
+                Date lastDate = new Date(weather.getValue().getTime());
+                lastDate.setMinutes(0);
+                lastDate.setSeconds(0);
+                Date current = new Date();
+                current.setMinutes(0);
+                current.setSeconds(0);
+                Date difference = new Date(current.getTime() - lastDate.getTime());
+                long diffHours = difference.getTime() / (60 * 60 * 1000);
+                if (diffHours == 0) {
+                    ConsoleHelper.writeString("Отправил погоду для " + cityName);
+                    return weather.getKey();
+                } else {
+                    String url = "http://api.openweathermap.org/data/2.5/onecall?lat=" + o.getDouble("lat") + "&lon=" + o.getDouble("lng") + "&units=metric&appid=71b119d9c5f8d45e899b73f2f984dff9";
+                    Document doc = Jsoup.connect(url).ignoreContentType(true).get();
+                    JSONObject object = new JSONObject(doc.text());
+                    Date cur = new Date();
+                    cur.setSeconds(0);
+                    cur.setMinutes(0);
+                    weathers.put(cityName, new Pair<JSONObject, Date>(new JSONObject(doc.text()), cur));
+                    ConsoleHelper.writeString("Перезаписал погоду для " + cityName);
+                    return object;
+                }
+            }
+        }
+
+        public static void loadHist() {
+            try {
+                String day = new SimpleDateFormat("d").format(updateTime);
+                String month = new SimpleDateFormat("M").format(updateTime);
+                Document doc = Jsoup.connect("https://knowhistory.ru/date/" + month + "/" + day).get();
+                Elements els = doc.select(".view-content").get(0).select(".views-row");
+                histDay = new HistDay();
+                for (Element a : els) {
+                    String date = a.select(".views-field-field-date").text();
+                    String url = a.select(".views-field-field-images").select(".field-content").select("a[href]").attr("abs:href");
+                    Elements descs = a.select(".views-field-body").select(".field-content").select("p");
+                    List<String> strings = new ArrayList<>();
+                    for (Element h : descs) {
+                        strings.add(h.text());
+                    }
+                    HistEvent event = new HistEvent(url, date, strings);
+                    histDay.addEvent(event);
+                }
+                ConsoleHelper.writeString("Загружена история!");
+            } catch (IOException e) {
+                loadHist();
+            }
+        }
     }
 
     static Date updateTime = new Date();
 
     public static void main(String[] args) throws IOException, InterruptedException {
         ConsoleHelper.init();
+        JSoupPropsLoader.loadJokes();
         JSoupPropsLoader.loadMoonDay();
         JSoupPropsLoader.loadPresent();
         JSoupPropsLoader.loadOmens();
@@ -707,6 +862,7 @@ public class YourDayServer extends WebSocketServer {
         JSoupPropsLoader.loadGoroscope();
         JSoupPropsLoader.loadNames();
         JSoupPropsLoader.loadHumans();
+        JSoupPropsLoader.loadHist();
         loadWeekendsCombinations();
         ConsoleHelper.writeString("Программа готова работать!");
         new Thread(new Runnable() {
@@ -725,6 +881,7 @@ public class YourDayServer extends WebSocketServer {
                             JSoupPropsLoader.loadNames();
                             JSoupPropsLoader.loadHumans();
                             JSoupPropsLoader.loadRecipe();
+                            JSoupPropsLoader.loadHist();
                         }
                         Thread.sleep(300000);
                     } catch (InterruptedException e) {
@@ -890,9 +1047,9 @@ public class YourDayServer extends WebSocketServer {
                 }
             } else if (answer.equals("4")) {
                 System.out.println("************************************************");
-                for (String a : names) {
+                /*for (String a : names) {
                     System.out.println(a);
-                }
+                }*/
             } else if (answer.equals("5")) {
                 System.out.println("************************************************");
                 for (Human a : humans) {
@@ -1094,13 +1251,10 @@ public class YourDayServer extends WebSocketServer {
             webSocket.send(answer.toString());
             ConsoleHelper.writeString("Все праздники отправлены: " + answer.toString());
         } else if (o.get("type").equals("namesBirthdays")) {
-            Names n = new Names(names);
-            JSONArray a = n.createJSON();
-            JSONObject root = new JSONObject();
-            root.put("type", "namesBirthdaysAnswer");
-            root.put("names", a);
-            webSocket.send(root.toString());
-            ConsoleHelper.writeString("Именины отправлены: " + root.toString());
+            JSONObject a = names.createJSON();
+            a.put("type", "namesBirthdaysAnswer");
+            webSocket.send(a.toString());
+            ConsoleHelper.writeString("Именины отправлены: " + a.toString());
         } else if (o.get("type").equals("famousPeoples")) {
             Human j = humans.get((int) (humans.size() * Math.random()));
             JSONObject answer = j.createJSON();
@@ -1146,10 +1300,23 @@ public class YourDayServer extends WebSocketServer {
             res.put("type", "newRecipeAnswer");
             webSocket.send(res.toString());
         } else if (o.get("type").equals("joke")) {
-            Joke joke = JSoupPropsLoader.getJoke();
-            JSONObject answer = joke.createJSON();
-            answer.put("type", "jokeAnswer");
-            webSocket.send(answer.toString());
+            synchronized (jokes) {
+                Joke joke = null;
+                if(jokes.size() != 0){
+                    JSoupPropsLoader.loadJokes();
+                    joke = jokes.get((int) (Math.random() * jokes.size()));
+                    jokes.remove(joke);
+                }else {
+                    joke = jokes.get((int) (Math.random() * jokes.size()));
+                    jokes.remove(joke);
+                }
+                if(joke == null){
+                    joke = new Joke("Анекдоты пока недоступны, перезагрущите пункт.");
+                }
+                JSONObject answer = joke.createJSON();
+                answer.put("type", "jokeAnswer");
+                webSocket.send(answer.toString());
+            }
         } else if (o.get("type").equals("omen")) {
             JSONObject object = omen.createJSON();
             object.put("type", "omenAnswer");
@@ -1158,6 +1325,18 @@ public class YourDayServer extends WebSocketServer {
             JSONObject object = moonDay.createJSON();
             object.put("type", "moonDayAnswer");
             webSocket.send(object.toString());
+        } else if (o.get("type").equals("weather")) {
+            try {
+                JSONObject object = JSoupPropsLoader.loadWeather(o);
+                object.put("type", "weatherAnswer");
+                webSocket.send(object.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else if (o.get("type").equals("history")) {
+            JSONObject answer = histDay.createJSON();
+            answer.put("type", "histAnswer");
+            webSocket.send(answer.toString());
         }
     }
 
