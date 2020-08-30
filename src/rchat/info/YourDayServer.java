@@ -736,7 +736,7 @@ public class YourDayServer extends WebSocketServer {
                 NewRecipes recipes = new NewRecipes();
                 {
                     String name = first.select("[class=entry-title]").text();
-                    String url = first.select("[class=featured-image]").select("[src]").attr("abs:src");
+                    String url = first.select(".post-thumbnail img").get(0).attr("src");
                     String everything = "";
                     Elements w = first.select("div p");
                     for (int i = 1; i < w.size(); i++) {
@@ -751,7 +751,7 @@ public class YourDayServer extends WebSocketServer {
                 }
                 {
                     String name = second.select("[class=entry-title]").text();
-                    String url = second.select("[class=featured-image]").select("[src]").attr("abs:src");
+                    String url = second.select(".post-thumbnail img").get(0).attr("src");
                     String everything = "";
                     Elements w = second.select("div p");
                     for (int i = 1; i < w.size(); i++) {
@@ -766,7 +766,7 @@ public class YourDayServer extends WebSocketServer {
                 }
                 {
                     String name = third.select("[class=entry-title]").text();
-                    String url = third.select("[class=featured-image]").select("[src]").attr("abs:src");
+                    String url = third.select(".post-thumbnail img").get(0).attr("src");
                     String everything = "";
                     Elements w = third.select("div p");
                     for (int i = 1; i < w.size(); i++) {
@@ -1303,10 +1303,10 @@ public class YourDayServer extends WebSocketServer {
             synchronized (jokes) {
                 Joke joke = null;
                 if(jokes.size() != 0){
-                    JSoupPropsLoader.loadJokes();
                     joke = jokes.get((int) (Math.random() * jokes.size()));
                     jokes.remove(joke);
                 }else {
+                    JSoupPropsLoader.loadJokes();
                     joke = jokes.get((int) (Math.random() * jokes.size()));
                     jokes.remove(joke);
                 }
